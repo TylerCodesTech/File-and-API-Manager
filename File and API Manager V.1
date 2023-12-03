@@ -1,0 +1,290 @@
+#this is working!!!!
+
+
+
+#Test build 2, food for thought:
+#File Management
+#--Renaming******
+#--Deleting*****
+#--Moving files to different folders****
+
+#API Request Methods:
+#--Http request methods
+#----GET, POST, PUT, DELETE, ETC, .Exception
+
+#Better user interface:
+#--more informative lavels, tooltips, and validation for user inputs,
+
+#History and favorits:???
+#--Implement a history feature to track previous PAI requests and file operrations
+#--Allow the user to makr certain endpoints or files as favorites for quick access?
+
+#Data visualization:
+#--Fetching and dispalying the data from the API
+#--Maybe Matplotlib
+
+#Exporting the data:
+#--add options for exporting the API repsonse data to different formats
+#----CSV, EXCEL, JSON...abs
+
+#Unit testing --- this is new and really wanna try it
+#Testing various functionalties to catch any potential issues.abs
+
+#Security:
+#--prevent unauthorized access to the application and protest the data.
+
+#Perofrmance and optimization:
+#--how to deal with large files or a bunch of freguent requests.
+
+
+import tkinter as tk
+from tkinter import ttk, filedialog, simpledialog, messagebox
+
+import requests
+import json
+import logging
+import configparser
+import os
+
+# Initialize logging
+logging.basicConfig(filename='app.log', level=logging.INFO, format='%(asctime)s - %(message)s')
+
+# Function to update status bar
+def update_status(message):
+    status_var.set(message)
+
+def download_file_with_progress():
+    url = simpledialog.askstring("Download File", "Enter the URL:")
+    if url:
+        progress_bar = ttk.Progressbar(root, orient=tk.HORIZONTAL, length=100, mode='determinate')
+        progress_bar.pack(pady=2)
+        try:
+            response = requests.get(url, stream=True, timeout=config["timeout"])
+            total_length = response.headers.get('content-length')
+
+            if response.status_code == 200:
+                file_name = url.split('/')[-1]
+                download_path = config["download_path"] + '/' + file_name
+                with open(download_path, 'wb') as file:
+                    if total_length is None:  # no content length header
+                        file.write(response.content)
+                    else:
+                        downloaded = 0
+                        total_length = int(total_length)
+                        for data in response.iter_content(chunk_size=4096):
+                            downloaded += len(data)
+                            file.write(data)
+                            done = int(50 * downloaded / total_length)
+                            progress_bar['value'] = done
+                            root.update_idletasks()
+                update_status(f"File '{file_name}' downloaded to {download_path}.")
+                logging.info(f"Downloaded file from {url}")
+            else:
+                update_status(f"Failed to download. Status code: {response.status_code}")
+        except requests.exceptions.RequestException as e:
+            update_status(f"Request error: {e}")
+            logging.error(f"Download failed: {e}")
+        finally:
+            progress_bar.pack_forget()
+
+def fetch_api_data():
+    api_url = simpledialog.askstring("Fetch API Data", "Enter API URL:")
+    if api_url:
+        try:
+            response = requests.get(api_url, timeout=config["timeout"])
+            if response.status_code == 200:
+                display_json(response.json())
+            else:
+                update_status(f"Failed to fetch data. Status code: {response.status_code}")
+        except requests.exceptions.RequestException as e:
+            update_status(f"Request error: {e}")
+
+def upload_file():
+    file_path = filedialog.askopenfilename()
+    if file_path:
+        upload_url = simpledialog.askstring("Upload File", "Enter the upload URL:")
+        if upload_url:
+            try:
+                files = {'file': open(file_path, 'rb')}
+                response = requests.post(upload_url, files=files, timeout=config["timeout"])
+                if response.status_code in [200, 201]:
+                    update_status(f"File '{os.path.basename(file_path)}' uploaded successfully.")
+                else:
+                    update_status(f"Failed to upload. Status code: {response.status_code}")
+            except requests.exceptions.RequestException as e:
+                update_status(f"Request error: {e}")
+
+def display_json(json_data):
+    window = tk.Toplevel(root)
+    window.title("JSON Response")
+    text = ttk.Text(window, wrap="word")
+    text.insert("end", json.dumps(json_data, indent=4))
+    text.config(state="disabled")
+    scrollb = ttk.Scrollbar(window, command=text.yview)
+    text['yscrollcommand'] = scrollb.set
+    text.pack(side="left", fill="both", expand=True)
+    scrollb.pack(side="right", fill="y")
+
+def open_config_window():
+    config_window = tk.Toplevel(root)
+    config_window.title("Configuration")
+
+    # Timeout setting
+    ttk.Label(config_window, text="Timeout (seconds):").pack()
+    timeout_entry = tk.Entry(config_window)
+    timeout_entry.insert(0, str(config["timeout"]))
+    timeout_entry.pack()
+
+    # Download path setting
+    ttk.Label(config_window, text="Default Download Path:").pack()
+    download_path_entry = tk.Entry(config_window)
+    download_path_entry.insert(0, config["download_path"])
+    download_path_entry.pack()
+
+    def save_config():
+        config["timeout"] = int(timeout_entry.get())
+        config["download_path"] = download_path_entry.get()
+        save_config_to_file()
+        config_window.destroy()
+        update_status("Configuration updated")
+
+    save_button = ttk.Button(config_window, text="Save", command=save_config)
+    save_button.pack()
+
+def save_config_to_file():
+    config_parser = configparser.ConfigParser()
+    config_parser['Settings'] = {'timeout': str(config["timeout"]), 'download_path': config["download_path"]}
+    with open('config.ini', 'w') as configfile:
+        config_parser.write(configfile)
+
+def load_config():
+    config_parser = configparser.ConfigParser()
+    config_parser.read('config.ini')
+    config["timeout"] = config_parser.getint('Settings', 'timeout', fallback=10)
+    config["download_path"] = config_parser.get('Settings', 'download_path', fallback=".")
+
+def open_log_viewer():
+    log_window = tk.Toplevel(root)
+    log_window.title("Log Viewer")
+    text = ttk.Text(log_window, wrap="word")
+    scrollb = ttk.Scrollbar(log_window, command=text.yview)
+    text['yscrollcommand'] = scrollb.set
+    try:
+        with open('app.log', 'r') as log_file:
+            text.insert("end", log_file.read())
+    except FileNotFoundError:
+        text.insert("end", "Log file not found.")
+    text.config(state="disabled")
+    text.pack(side="left", fill="both", expand=True)
+    scrollb.pack(side="right", fill="y")
+
+def rename_file():
+    current_path = filedialog.askopenfilename()
+    if current_path:
+        new_name = simpledialog.askstring("Rename File", "Enter the new file name:")
+        if new_name:
+            try:
+                file_dir = os.path.dirname(current_path)
+                new_path = os.path.join(file_dir, new_name)
+                os.rename(current_path, new_path)
+                update_status(f"File renamed to '{new_name}'.")
+            except Exception as e:
+                update_status(f"Failed to rename file: {e}")
+
+def delete_file():
+    file_path = filedialog.askopenfilename()
+    if file_path:
+        try:
+            os.remove(file_path)
+            update_status(f"File '{os.path.basename(file_path)}' deleted.")
+        except Exception as e:
+            update_status(f"Failed to delete file: {e}")
+
+def move_file():
+    file_path = filedialog.askopenfilename()
+    if file_path:
+        destination_folder = filedialog.askdirectory()
+        if destination_folder:
+            try:
+                new_path = os.path.join(destination_folder, os.path.basename(file_path))
+                os.rename(file_path, new_path)
+                update_status(f"File moved to '{destination_folder}'.")
+            except Exception as e:
+                update_status(f"Failed to move file: {e}")
+
+# Create the main window
+root = tk.Tk()
+root.title("API Task Automator")
+
+# Define modern styles
+style = ttk.Style(root)
+style.theme_use('clam')
+
+# Define colors and fonts
+bg_color = '#333333'
+fg_color = '#ffffff'
+accent_color = '#4faaff'
+button_color = '#555555'
+font = ('Helvetica', 12)
+
+# Apply styles globally
+style.configure('TButton', background=button_color, foreground=fg_color, font=font, borderwidth=1)
+style.configure('TLabel', background=bg_color, foreground=fg_color, font=font)
+style.configure('TFrame', background=bg_color)
+style.configure('TNotebook', background=bg_color, borderwidth=0)
+style.configure('TNotebook.Tab', background=button_color, foreground=fg_color, padding=[20, 10])
+style.map('TButton', background=[('active', accent_color)], foreground=[('active', fg_color)])
+style.map('TNotebook.Tab', background=[('selected', accent_color)], foreground=[('selected', fg_color)])
+style.configure('TEntry', background="#2e2e2e", foreground=fg_color, fieldbackground="#2e2e2e", insertbackground=fg_color)
+
+# Create a frame for padding
+frame = ttk.Frame(root, padding="10 10 10 10")
+frame.pack(fill='both', expand=True)
+
+# Create a status bar
+status_var = tk.StringVar()
+status_bar = ttk.Label(root, textvariable=status_var, background=button_color, foreground=fg_color, font=font, relief=tk.SUNKEN, anchor='w')
+status_bar.pack(side='bottom', fill='x')
+
+# Create tabs
+notebook = ttk.Notebook(frame)
+file_tab = ttk.Frame(notebook)
+api_tab = ttk.Frame(notebook)
+notebook.add(file_tab, text='File Operations')
+notebook.add(api_tab, text='API Interactions')
+notebook.pack(expand=1, fill='both', pady=10, padx=10)
+
+# Add content to File Operations tab
+ttk.Button(file_tab, text='Download File', command=download_file_with_progress).pack(pady=5, fill='x')
+ttk.Button(file_tab, text='Upload File', command=upload_file).pack(pady=5, fill='x')
+ttk.Button(file_tab, text='Rename File', command=rename_file).pack(pady=5, fill='x')
+ttk.Button(file_tab, text='Delete File', command=delete_file).pack(pady=5, fill='x')
+ttk.Button(file_tab, text='Move File', command=move_file).pack(pady=5, fill='x')
+
+# Add content to API Interactions tab
+ttk.Label(api_tab, text='API Endpoint:', background=bg_color, foreground=fg_color).pack(pady=(10, 0))
+fetch_entry = ttk.Entry(api_tab, font=font)
+fetch_entry.pack(pady=5, fill='x')
+
+def fetch_data():
+    api_endpoint = fetch_entry.get()
+    if api_endpoint:
+        fetch_api_data()
+    else:
+        update_status("Please enter a valid API endpoint.")
+
+ttk.Button(api_tab, text='Fetch Data', command=fetch_data).pack(pady=5, fill='x')
+
+# Add settings menu
+menu_bar = tk.Menu(root)
+root.config(menu=menu_bar)
+settings_menu = tk.Menu(menu_bar, tearoff=0, background=button_color, foreground=fg_color)
+menu_bar.add_cascade(label="Settings", menu=settings_menu)
+settings_menu.add_command(label="Configuration", command=open_config_window)
+
+# Load configuration
+config = {"timeout": 10, "download_path": "."}
+load_config()
+
+# Run the app
+root.mainloop()
